@@ -68,7 +68,7 @@ describe("Peer", () => {
 
 			const track = new MediaStreamTrack();
 			const mediaStream = new MediaStream([track]);
-
+			//peer1 is the peer we are calling
 			const mediaConnection = peer1.call("2", mediaStream, { ...mediaOptions });
 
 			expect(typeof mediaConnection.connectionId).toBe("string");

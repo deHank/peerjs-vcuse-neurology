@@ -2,6 +2,7 @@ import { EventEmitter } from "eventemitter3";
 import logger from "./logger";
 import { ServerMessageType, SocketEventType } from "./enums";
 import { version } from "./version";
+import { ServerMessage } from "./servermessage";
 
 /**
  * An abstraction on top of WebSockets to provide fastest
@@ -30,10 +31,10 @@ export class Socket extends EventEmitter {
 		this._baseUrl = wsProtocol + host + ":" + port + path + "peerjs?key=" + key;
 	}
 
-	start(id: string, token: string): void {
+	start(id: string, token: string, username?: string): void {
 		this._id = id;
 
-		const wsUrl = `${this._baseUrl}&id=${id}&token=${token}`;
+		const wsUrl = `${this._baseUrl}&id=${id}&token=${token}&username=${username}`;
 
 		if (!!this._socket || !this._disconnected) {
 			return;
@@ -47,7 +48,28 @@ export class Socket extends EventEmitter {
 
 			try {
 				data = JSON.parse(event.data);
-				logger.log("Server message received:", data);
+				logger.log("Server message received1:", data);
+				if(data.type == ServerMessageType.Open){
+					logger.log("Open msg received");
+					const msg = {
+						dst: '',
+						src: id,
+						type: 'GETRTPCAPABILITIES',};
+					const jsonString = JSON.stringify(msg);
+						// provider.socket.send({
+						// 	type: ServerMessageType.Candidate,
+						// 	payload: {
+						// 		candidate: evt.candidate,
+						// 		type: connectionType,
+						// 		connectionId: connectionId,
+						// 	},
+						// 	dst: peerId,
+						// });
+
+					this._socket.send(
+						jsonString);
+					logger.log("sent msg back", jsonString);
+				}
 			} catch (e) {
 				logger.log("Invalid server message", event.data);
 				return;
@@ -75,9 +97,9 @@ export class Socket extends EventEmitter {
 			if (this._disconnected) {
 				return;
 			}
-
+			
 			this._sendQueuedMessages();
-
+			
 			logger.log("Socket open");
 
 			this._scheduleHeartbeat();

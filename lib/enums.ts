@@ -95,4 +95,7 @@ export enum ServerMessageType {
 	InvalidKey = "INVALID-KEY", // The given API key cannot be found.
 	Leave = "LEAVE", // Another peer has closed its connection to this peer.
 	Expire = "EXPIRE", // The offer sent to a peer has expired without response.
+	GetCapabilities = "GETRTPCAPABILITIES", //get the capabilities of the server we route video thru
+	TransportCreated = "TRANSPORTCREATED",
+	MediaStreamReady = "CLIENTMEDIAREADY",
 }

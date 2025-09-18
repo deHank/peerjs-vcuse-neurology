@@ -1,6 +1,6 @@
 {
 	"name": "peerjs",
-	"version": "1.5.5",
+	"version": "1.6.05",
 	"keywords": [
 		"peerjs",
 		"webrtc",
@@ -207,6 +207,8 @@
 	"dependencies": {
 		"@msgpack/msgpack": "^2.8.0",
 		"eventemitter3": "^4.0.7",
+		"mediasoup": "^3.19.2",
+		"mediasoup-client": "^3.16.2",
 		"peerjs-js-binarypack": "^2.1.0",
 		"webrtc-adapter": "^9.0.0"
 	},

@@ -9,7 +9,7 @@ import {
 	ServerMessageType,
 	SocketEventType,
 } from "./enums";
-import type { ServerMessage } from "./servermessage";
+import { ServerMessage } from "./servermessage";
 import { API } from "./api";
 import type {
 	CallOption,
@@ -21,6 +21,9 @@ import { Raw } from "./dataconnection/BufferedConnection/Raw";
 import { Json } from "./dataconnection/BufferedConnection/Json";
 
 import { EventEmitterWithError, PeerError } from "./peerError";
+import { Server } from "mock-socket";
+import * as mediasoupClient from "mediasoup-client";
+import * as mediasoup from 'mediasoup';
 
 class PeerOptions implements PeerJSOption {
 	/**
@@ -106,6 +109,9 @@ export interface PeerEvents {
 	 * Errors from the underlying socket and PeerConnections are forwarded here.
 	 */
 	error: (error: PeerError<`${PeerErrorType}`>) => void;
+	/** Emitted when the client has successfuly made the transport */
+	SocketReady:() => void;
+	
 }
 /**
  * A peer who can initiate connections with other peers.
@@ -126,6 +132,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private readonly _socket: Socket;
 
 	private _id: string | null = null;
+	private _username: string | null = null;
 	private _lastServerId: string | null = null;
 
 	// States.
@@ -137,6 +144,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 		(DataConnection | MediaConnection)[]
 	> = new Map(); // All connections for this peer.
 	private readonly _lostMessages: Map<string, ServerMessage[]> = new Map(); // src => [list of messages]
+	private _stream: MediaStream;
 	/**
 	 * The brokering ID of this peer
 	 *
@@ -199,7 +207,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	 * A peer can connect to other peers and listen for connections.
 	 * @param options for specifying details about PeerServer
 	 */
-	constructor(options: PeerOptions);
+	constructor(username: string, options: PeerOptions);
 
 	/**
 	 * A peer can connect to other peers and listen for connections.
@@ -208,20 +216,20 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	 * The ID must start and end with an alphanumeric character (lower or upper case character or a digit). In the middle of the ID spaces, dashes (-) and underscores (_) are allowed. Use {@apilink PeerOptions.metadata } to send identifying information.
 	 * @param options for specifying details about PeerServer
 	 */
-	constructor(id: string, options?: PeerOptions);
+	constructor(username:string, id: string, options?: PeerOptions);
 
-	constructor(id?: string | PeerOptions, options?: PeerOptions) {
+	constructor(username?: string, id?: string | PeerOptions, options?: PeerOptions) {
 		super();
 
 		let userId: string | undefined;
-
+		this._username = username;
 		// Deal with overloading
 		if (id && id.constructor == Object) {
 			options = id as PeerOptions;
 		} else if (id) {
 			userId = id.toString();
 		}
-
+ 
 		// Configurize options
 		options = {
 			debug: 0, // 1: Errors, 2: Warnings, 3: All logs
@@ -289,7 +297,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 		}
 
 		if (userId) {
-			this._initialize(userId);
+			this._initialize(userId, username);
 		} else {
 			this._api
 				.retrieveId()
@@ -340,13 +348,13 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	}
 
 	/** Initialize a connection with the server. */
-	private _initialize(id: string): void {
+	private _initialize(id: string, username?: string): void {
 		this._id = id;
-		this.socket.start(id, this._options.token!);
+		this.socket.start(id, this._options.token!, username);
 	}
 
 	/** Handles messages from the server. */
-	private _handleMessage(message: ServerMessage): void {
+	private async _handleMessage(message: ServerMessage): Promise<void> {
 		const type = message.type;
 		const payload = message.payload;
 		const peerId = message.src;
@@ -380,6 +388,58 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					`Could not connect to peer ${peerId}`,
 				);
 				break;
+			case ServerMessageType.TransportCreated: {
+
+				logger.log('received the transport options message');
+				const device = new mediasoupClient.Device();
+				const rtcCap: mediasoup.types.RtpCapabilities = payload.routerRTPCapabilities;
+				try {
+                    // Await the device.load() method
+                    await device.load({ routerRtpCapabilities: rtcCap });
+                    console.log('device loaded successfully');
+                } catch (error) {
+                    console.error('failed to load device', error);
+                    return;
+                }
+
+				console.log('right befoer createandSendTransport');
+				// const capabilities = device.rtpCapabilities;
+				const mediaTransport = await device.createSendTransport(payload.rtcTransport);
+				const mediaDevices = await navigator.mediaDevices.getUserMedia({
+					video: true
+				  });
+				
+				// Step 2: Add the 'connect' listener
+				mediaTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+					// Your server-side logic goes here.
+					console.log("conencted");
+					// Send the dtlsParameters to your server using a WebSocket, a REST API, etc.
+					// The server will then use these parameters to finalize the DTLS handshake.
+					this.socket.emit('connect-transport', { dtlsParameters }, (err) => {
+					if (err) {
+						errback(err);
+						return;
+					}
+					// Inform mediasoup-client that the connection was successful.
+					callback();
+					});
+				});
+				// Step 3: Add the 'produce' listener (also necessary for this to work)
+				mediaTransport.on('produce', ({ kind, rtpParameters, appData }, callback) => {
+					console.log('Produce event triggered');
+					this.socket.emit('send-producer', { kind, rtpParameters, appData }, (producerId) => {
+						callback({ id: producerId });
+					});
+				});
+				mediaTransport.produce({track: (await mediaDevices).getVideoTracks()[0]});
+				console.log("mediaSoupTransport status", mediaTransport.connectionState);
+				const msg = {type: ServerMessageType.MediaStreamReady, payload: 'test', src: '', dst: ''};
+				
+				this.socket.send(msg);
+				
+				break;
+
+			}
 			case ServerMessageType.Offer: {
 				// we should consider switching this to CALL/CONNECT, but this is the least breaking option.
 				const connectionId = payload.connectionId;
@@ -400,6 +460,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 						metadata: payload.metadata,
 					});
 					connection = mediaConnection;
+					logger.log("Offer with connection");
 					this._addConnection(peerId, connection);
 					this.emit("call", mediaConnection);
 				} else if (payload.type === ConnectionType.Data) {
@@ -432,6 +493,15 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 
 				break;
 			}
+			// case ServerMessageType.Answer: {
+			// 	const srcPeer = message.src;
+
+			// 	const mediaConnection = new MediaConnection(srcPeer, this, {
+			// 		_stream: this._stream,
+			// 	});
+			// 	this._addConnection(srcPeer, mediaConnection);
+			// 	break;
+			// }
 			default: {
 				if (!payload) {
 					logger.warn(
@@ -520,6 +590,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	 * @param peer The brokering ID of the remote peer (their peer.id).
 	 * @param stream The caller's media stream
 	 * @param options Metadata associated with the connection, passed in by whoever initiated the connection.
+	 * We need to edit this section, to not add the media connection yet
 	 */
 	call(
 		peer: string,
@@ -546,13 +617,17 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			return;
 		}
 
+		this._stream = stream;
+
 		const mediaConnection = new MediaConnection(peer, this, {
 			...options,
 			_stream: stream,
 		});
+		this._stream = stream;
 		this._addConnection(peer, mediaConnection);
 		return mediaConnection;
 	}
+
 
 	/** Add a data/media connection to this peer. */
 	private _addConnection(
