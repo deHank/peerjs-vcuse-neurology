@@ -98,4 +98,5 @@ export enum ServerMessageType {
 	GetCapabilities = "GETRTPCAPABILITIES", //get the capabilities of the server we route video thru
 	TransportCreated = "TRANSPORTCREATED",
 	MediaStreamReady = "CLIENTMEDIAREADY",
+	SendProducer = 'SENDPRODUCER',
 }

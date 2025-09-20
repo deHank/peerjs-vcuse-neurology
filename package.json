@@ -1,6 +1,6 @@
 {
 	"name": "peerjs",
-	"version": "1.6.05",
+	"version": "1.9.5",
 	"keywords": [
 		"peerjs",
 		"webrtc",
@@ -210,7 +210,8 @@
 		"mediasoup": "^3.19.2",
 		"mediasoup-client": "^3.16.2",
 		"peerjs-js-binarypack": "^2.1.0",
-		"webrtc-adapter": "^9.0.0"
+		"webrtc-adapter": "^9.0.0",
+		"yalc": "^1.0.0-pre.53"
 	},
 	"alias": {
 		"process": false,

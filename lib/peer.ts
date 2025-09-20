@@ -24,6 +24,7 @@ import { EventEmitterWithError, PeerError } from "./peerError";
 import { Server } from "mock-socket";
 import * as mediasoupClient from "mediasoup-client";
 import * as mediasoup from 'mediasoup';
+import { Producer } from "mediasoup-client/lib/Producer";
 
 class PeerOptions implements PeerJSOption {
 	/**
@@ -130,6 +131,8 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private readonly _options: PeerOptions;
 	private readonly _api: API;
 	private readonly _socket: Socket;
+	private _producer: Producer;
+	private _device: mediasoupClient.Device = null;
 
 	private _id: string | null = null;
 	private _username: string | null = null;
@@ -389,54 +392,56 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				);
 				break;
 			case ServerMessageType.TransportCreated: {
-
 				logger.log('received the transport options message');
-				const device = new mediasoupClient.Device();
+				this._device = new mediasoupClient.Device();
 				const rtcCap: mediasoup.types.RtpCapabilities = payload.routerRTPCapabilities;
-				try {
-                    // Await the device.load() method
-                    await device.load({ routerRtpCapabilities: rtcCap });
-                    console.log('device loaded successfully');
-                } catch (error) {
-                    console.error('failed to load device', error);
-                    return;
-                }
 
-				console.log('right befoer createandSendTransport');
-				// const capabilities = device.rtpCapabilities;
-				const mediaTransport = await device.createSendTransport(payload.rtcTransport);
+				try {
+					await this._device.load({ routerRtpCapabilities: rtcCap });
+					console.log('device loaded successfully');
+				} catch (error) {
+					console.error('failed to load device', error);
+					return;
+				}
+
+				console.log('right before createandSendTransport');
+				const mediaTransport = await this._device.createSendTransport(payload.rtcTransport);
 				const mediaDevices = await navigator.mediaDevices.getUserMedia({
 					video: true
-				  });
-				
-				// Step 2: Add the 'connect' listener
-				mediaTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
-					// Your server-side logic goes here.
-					console.log("conencted");
-					// Send the dtlsParameters to your server using a WebSocket, a REST API, etc.
-					// The server will then use these parameters to finalize the DTLS handshake.
-					this.socket.emit('connect-transport', { dtlsParameters }, (err) => {
-					if (err) {
-						errback(err);
-						return;
-					}
-					// Inform mediasoup-client that the connection was successful.
-					callback();
-					});
 				});
-				// Step 3: Add the 'produce' listener (also necessary for this to work)
+
+				// Step 1: Add the 'connect' listener FIRST
+				mediaTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+					console.log("connected", dtlsParameters);
+					// this.socket.emit('connect-transport', { dtlsParameters }, (err) => {
+					// 	if (err) {
+					// 		errback(err);
+					// 		return;
+					// 	}
+						callback();
+					// });
+				});
+
+				// Step 2: Add the 'produce' listener SECOND
 				mediaTransport.on('produce', ({ kind, rtpParameters, appData }, callback) => {
 					console.log('Produce event triggered');
-					this.socket.emit('send-producer', { kind, rtpParameters, appData }, (producerId) => {
-						callback({ id: producerId });
-					});
+					// this.socket.emit('send-producer', { kind, rtpParameters, appData }, (producerId) => {
+					// 	callback({ id: producerId });
+					const msg = { type: ServerMessageType.MediaStreamReady, payload: rtpParameters, src: '', dst: '' };
+
+					this.socket.send(msg);
+					console.log("mediaSoupTransport sent",appData );
+					callback({id: this._id});
+					// });
 				});
-				mediaTransport.produce({track: (await mediaDevices).getVideoTracks()[0]});
+
+				// Step 3: NOW call .produce()
+				this._producer = await mediaTransport.produce({ track: mediaDevices.getVideoTracks()[0] });
+
 				console.log("mediaSoupTransport status", mediaTransport.connectionState);
-				const msg = {type: ServerMessageType.MediaStreamReady, payload: 'test', src: '', dst: ''};
 				
-				this.socket.send(msg);
-				
+				console.log('producedid', this._producer.id);
+
 				break;
 
 			}
@@ -491,6 +496,14 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					connection.handleMessage(message);
 				}
 
+				break;
+			}
+			case ServerMessageType.SendProducer: {
+				console.log('received producer');// The server sent the new producer's ID
+				
+				
+				// Now, let's start the consumption process
+				this.consumeNewStream(message);
 				break;
 			}
 			// case ServerMessageType.Answer: {
@@ -594,7 +607,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	 */
 	call(
 		peer: string,
-		stream: MediaStream,
+		// stream: MediaStream,
 		options: CallOption = {},
 	): MediaConnection {
 		if (this.disconnected) {
@@ -610,22 +623,35 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			return;
 		}
 
-		if (!stream) {
-			logger.error(
-				"To call a peer, you must provide a stream from your browser's `getUserMedia`.",
-			);
-			return;
-		}
+		// if (!stream) {
+		// 	logger.error(
+		// 		"To call a peer, you must provide a stream from your browser's `getUserMedia`.",
+		// 	);
+		// 	return;
+		// }
 
-		this._stream = stream;
+		// this._stream = stream;
 
-		const mediaConnection = new MediaConnection(peer, this, {
-			...options,
-			_stream: stream,
-		});
-		this._stream = stream;
-		this._addConnection(peer, mediaConnection);
-		return mediaConnection;
+		// const mediaConnection = new MediaConnection(peer, this, {
+		// 	...options,
+		// 	_stream: stream,
+		// });
+		// this._stream = stream;
+		// this._addConnection(peer, mediaConnection);
+		const msg = {
+				dst: peer,
+				payload: {
+					producerId: this._producer.id,
+					rtpParameters: this._producer.rtpParameters, // Send the parameters
+					kind: this._producer.kind,
+				},
+				src: this.id,
+				type: ServerMessageType.SendProducer,};
+			const jsonString = JSON.stringify(msg);
+		logger.log("about to send msg", msg);
+		this._socket.send(msg);
+		logger.log('send msg');
+		// return mediaConnection;
 	}
 
 
@@ -774,6 +800,16 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 		this.emit("disconnected", currentId);
 	}
 
+	consumeNewStream(message: ServerMessage) {
+		try {
+			let recvTransport = this._device.createRecvTransport(message.payload);
+			console.log('recv transport succesfullycreated',recvTransport);
+			
+		}catch (error) {
+			logger.error('error creating recvTransport', error);
+		}
+	}
+
 	/** Attempts to reconnect with the same ID.
 	 *
 	 * Only {@apilink Peer.disconnect | disconnected peers} can be reconnected.
@@ -817,3 +853,5 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			.catch((error) => this._abort(PeerErrorType.ServerError, error));
 	}
 }
+
+
