@@ -25,6 +25,7 @@ import { Server } from "mock-socket";
 import * as mediasoupClient from "mediasoup-client";
 import * as mediasoup from 'mediasoup';
 import { Producer } from "mediasoup-client/lib/Producer";
+import { Transport } from "mediasoup-client/lib/Transport";
 
 class PeerOptions implements PeerJSOption {
 	/**
@@ -137,6 +138,9 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private _id: string | null = null;
 	private _username: string | null = null;
 	private _lastServerId: string | null = null;
+	private _iceParameters: any;
+	private _iceCandidates: any;
+	private _dtlsParameters: string | null = null;
 
 	// States.
 	private _destroyed = false; // Connections have been killed
@@ -392,7 +396,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				);
 				break;
 			case ServerMessageType.TransportCreated: {
-				logger.log('received the transport options message');
+				logger.log('received the transport options message', payload);
 				this._device = new mediasoupClient.Device();
 				const rtcCap: mediasoup.types.RtpCapabilities = payload.routerRTPCapabilities;
 
@@ -409,7 +413,10 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				const mediaDevices = await navigator.mediaDevices.getUserMedia({
 					video: true
 				});
-
+				this._iceParameters = payload.rtcTransport.iceParameters;
+				this._iceCandidates = payload.rtcTransport.iceCandidates;
+				this._dtlsParameters = payload.rtcTransport.dtlsParameters;
+				
 				// Step 1: Add the 'connect' listener FIRST
 				mediaTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
 					console.log("connected", dtlsParameters);
@@ -431,7 +438,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 
 					this.socket.send(msg);
 					console.log("mediaSoupTransport sent",appData );
-					callback({id: this._id});
+					callback({id: payload.rtcTransport.id});
 					// });
 				});
 
@@ -609,7 +616,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 		peer: string,
 		// stream: MediaStream,
 		options: CallOption = {},
-	): MediaConnection {
+	) {
 		if (this.disconnected) {
 			logger.warn(
 				"You cannot connect to a new Peer because you called " +
@@ -622,7 +629,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			);
 			return;
 		}
-
+		console.log('calling peer');
 		// if (!stream) {
 		// 	logger.error(
 		// 		"To call a peer, you must provide a stream from your browser's `getUserMedia`.",
@@ -644,13 +651,16 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					producerId: this._producer.id,
 					rtpParameters: this._producer.rtpParameters, // Send the parameters
 					kind: this._producer.kind,
+					_iceParameters: this._iceParameters,
+					iceCandidates: this._iceCandidates,
+					dtlsParameters: this._dtlsParameters
 				},
 				src: this.id,
 				type: ServerMessageType.SendProducer,};
 			const jsonString = JSON.stringify(msg);
-		logger.log("about to send msg", msg);
+		console.log("about to send msg", msg);
 		this._socket.send(msg);
-		logger.log('send msg');
+		console.log('sent call msg');
 		// return mediaConnection;
 	}
 
@@ -801,13 +811,40 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	}
 
 	consumeNewStream(message: ServerMessage) {
+		console.log('in consumeNewStream about to create recVTrasnport', message);
 		try {
-			let recvTransport = this._device.createRecvTransport(message.payload);
-			console.log('recv transport succesfullycreated',recvTransport);
-			
+			let producerID = message.payload.producerId;
+			//id, iceParameters, iceCandidates, dtlsParameters, sctpParameters
+			console.log('producer id',producerID);
+			let iceParameters = message.payload._iceParameters;
+			let iceCandidates = message.payload.iceCandidates;
+			let dtlsParameters = message.payload.dtlsParameters;
+			let recvTransport = this._device.createRecvTransport({id: producerID,iceParameters: iceParameters, iceCandidates: iceCandidates, dtlsParameters: dtlsParameters});
+			//console.log('recv transport succesfullycreated',recvTransport);
+			this.signalToConsume(recvTransport, producerID);
 		}catch (error) {
 			logger.error('error creating recvTransport', error);
 		}
+	}
+
+	signalToConsume(transport: Transport, producerId: any){
+		const msg = {
+			dst: 'df',
+			payload: {
+				producerId: producerId,
+				rtpCapablities: this._device.rtpCapabilities,
+			},
+			src: this.id,
+			type: ServerMessageType.SignalConsume};
+		const jsonString = JSON.stringify(msg);
+		this._socket.send(msg);
+		console.log('sent signalToConsume to server');
+		this.createClientConsumer(transport);
+	}
+
+
+	createClientConsumer(recvTransport: Transport){
+		const consumer = recvTransport.consume();
 	}
 
 	/** Attempts to reconnect with the same ID.
