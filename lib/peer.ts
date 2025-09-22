@@ -141,7 +141,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private _iceParameters: any;
 	private _iceCandidates: any;
 	private _dtlsParameters: string | null = null;
-
+	private _theirProducerId: string | null = null;
 	// States.
 	private _destroyed = false; // Connections have been killed
 	private _disconnected = false; // Connection to PeerServer killed but P2P connections still active
@@ -507,7 +507,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			}
 			case ServerMessageType.SendProducer: {
 				console.log('received producer');// The server sent the new producer's ID
-				
+				this._theirProducerId = payload.producerId;
 				
 				// Now, let's start the consumption process
 				this.consumeNewStream(message);
@@ -813,6 +813,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	consumeNewStream(message: ServerMessage) {
 		console.log('in consumeNewStream about to create recVTrasnport', message);
 		try {
+			let theirID = message.src;
 			let producerID = message.payload.producerId;
 			//id, iceParameters, iceCandidates, dtlsParameters, sctpParameters
 			console.log('producer id',producerID);
@@ -821,30 +822,32 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			let dtlsParameters = message.payload.dtlsParameters;
 			let recvTransport = this._device.createRecvTransport({id: producerID,iceParameters: iceParameters, iceCandidates: iceCandidates, dtlsParameters: dtlsParameters});
 			//console.log('recv transport succesfullycreated',recvTransport);
-			this.signalToConsume(recvTransport, producerID);
+			this.signalToConsume(theirID, recvTransport, producerID, iceParameters, iceCandidates,dtlsParameters );
 		}catch (error) {
 			logger.error('error creating recvTransport', error);
 		}
 	}
 
-	signalToConsume(transport: Transport, producerId: any){
+	signalToConsume(theirPeerId: any, transport: Transport, producerId: any, iceParameters: any, iceCandidates: any, dtlsParameters: any){
 		const msg = {
 			dst: 'df',
 			payload: {
 				producerId: producerId,
 				rtpCapablities: this._device.rtpCapabilities,
+				theirPeerId: theirPeerId,
 			},
 			src: this.id,
 			type: ServerMessageType.SignalConsume};
 		const jsonString = JSON.stringify(msg);
 		this._socket.send(msg);
 		console.log('sent signalToConsume to server');
-		this.createClientConsumer(transport);
+		//this.createClientConsumer(transport, iceParameters, iceCandidates, dtlsParameters);
 	}
 
 
-	createClientConsumer(recvTransport: Transport){
-		const consumer = recvTransport.consume();
+	createClientConsumer(recvTransport: Transport, iceParameters: any, iceCandidates: any, dtlsParameters: any){
+		const consumer = recvTransport.consume;
+		console.log("consumer created!!", consumer.toString);
 	}
 
 	/** Attempts to reconnect with the same ID.
