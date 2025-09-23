@@ -113,7 +113,7 @@ export interface PeerEvents {
 	error: (error: PeerError<`${PeerErrorType}`>) => void;
 	/** Emitted when the client has successfuly made the transport */
 	SocketReady:() => void;
-	
+	streamReceived: (stream: MediaStreamTrack) => void;
 }
 /**
  * A peer who can initiate connections with other peers.
@@ -134,6 +134,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private readonly _socket: Socket;
 	private _producer: Producer;
 	private _device: mediasoupClient.Device = null;
+	private _recvTransport: mediasoupClient.types.Transport = null;
 
 	private _id: string | null = null;
 	private _username: string | null = null;
@@ -142,6 +143,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private _iceCandidates: any;
 	private _dtlsParameters: string | null = null;
 	private _theirProducerId: string | null = null;
+
 	// States.
 	private _destroyed = false; // Connections have been killed
 	private _disconnected = false; // Connection to PeerServer killed but P2P connections still active
@@ -434,7 +436,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					console.log('Produce event triggered');
 					// this.socket.emit('send-producer', { kind, rtpParameters, appData }, (producerId) => {
 					// 	callback({ id: producerId });
-					const msg = { type: ServerMessageType.MediaStreamReady, payload: rtpParameters, src: '', dst: '' };
+					const msg = { type: ServerMessageType.MediaStreamReady, payload: rtpParameters, src: this._id, dst: '' };
 
 					this.socket.send(msg);
 					console.log("mediaSoupTransport sent",appData );
@@ -451,6 +453,38 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 
 				break;
 
+			}
+
+			case ServerMessageType.ConsumerCreated: {
+				console.log('received consumer from server time to consume on client');
+				const {
+					id,
+					producerId,
+					kind,
+					rtpParameters,
+					paused,
+					// The `type` property is also there if you need it.
+				} = message.payload;
+
+				this._recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
+					console.log('connect was a success');
+					callback();
+				});
+				const consumer = this._recvTransport.consume({id: id,
+					producerId: producerId,
+					kind: kind,
+					rtpParameters: rtpParameters,
+					});
+				
+				const mediaStream = (await consumer).track;
+				// Emit the new event with the MediaStream
+				this.emit("streamReceived", mediaStream);
+				
+				
+				
+				
+				console.log('Client-side consumer created:', (await consumer).id);
+				break;
 			}
 			case ServerMessageType.Offer: {
 				// we should consider switching this to CALL/CONNECT, but this is the least breaking option.
@@ -820,7 +854,9 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			let iceParameters = message.payload._iceParameters;
 			let iceCandidates = message.payload.iceCandidates;
 			let dtlsParameters = message.payload.dtlsParameters;
+			
 			let recvTransport = this._device.createRecvTransport({id: producerID,iceParameters: iceParameters, iceCandidates: iceCandidates, dtlsParameters: dtlsParameters});
+			this._recvTransport = recvTransport;
 			//console.log('recv transport succesfullycreated',recvTransport);
 			this.signalToConsume(theirID, recvTransport, producerID, iceParameters, iceCandidates,dtlsParameters );
 		}catch (error) {

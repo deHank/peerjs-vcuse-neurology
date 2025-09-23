@@ -99,5 +99,6 @@ export enum ServerMessageType {
 	TransportCreated = "TRANSPORTCREATED",
 	MediaStreamReady = "CLIENTMEDIAREADY",
 	SendProducer = 'SENDPRODUCER',
-	SignalConsume = 'SIGNALCONSUME'
+	SignalConsume = 'SIGNALCONSUME',
+	ConsumerCreated = 'CONSUMERCREATED',
 }
