@@ -413,7 +413,8 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				console.log('right before createandSendTransport');
 				const mediaTransport = await this._device.createSendTransport(payload.rtcTransport);
 				const mediaDevices = await navigator.mediaDevices.getUserMedia({
-					video: true
+					video: true,
+					audio: true,
 				});
 				this._iceParameters = payload.rtcTransport.iceParameters;
 				this._iceCandidates = payload.rtcTransport.iceCandidates;
@@ -427,6 +428,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					// 		errback(err);
 					// 		return;
 					// 	}
+						this._socket.send({type: 'CONNECTTRANSPORT', payload: dtlsParameters});
 						callback();
 					// });
 				});
@@ -456,7 +458,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			}
 
 			case ServerMessageType.ConsumerCreated: {
-				console.log('received consumer from server time to consume on client');
+				console.log('received consumer from server time to consume on client', payload);
 				const {
 					id,
 					producerId,
