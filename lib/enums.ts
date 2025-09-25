@@ -101,4 +101,6 @@ export enum ServerMessageType {
 	SendProducer = 'SENDPRODUCER',
 	SignalConsume = 'SIGNALCONSUME',
 	ConsumerCreated = 'CONSUMERCREATED',
+	NewProducerId = 'NEWPRODUCERID',
+	Connected = 'CONNECTED',
 }
