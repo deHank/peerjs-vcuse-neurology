@@ -114,7 +114,7 @@ export interface PeerEvents {
 	error: (error: PeerError<`${PeerErrorType}`>) => void;
 	/** Emitted when the client has successfuly made the transport */
 	SocketReady:() => void;
-	streamReceived: (stream: MediaStreamTrack) => void;
+	streamReceived: (stream: MediaStream) => void;
 }
 /**
  * A peer who can initiate connections with other peers.
@@ -419,7 +419,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					this._transport = sendTransport;
 					const mediaDevices = await navigator.mediaDevices.getUserMedia({
 						video: true,
-					
+						audio: true
 					});
 					this._iceParameters = payload.rtcTransport.iceParameters;
 					this._iceCandidates = payload.rtcTransport.iceCandidates;
@@ -506,13 +506,16 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					producerId: producerId,
 					kind: kind,
 					rtpParameters: rtpParameters,
-				
+					
 					});
 				
 
 				const mediaStream = (await consumer).track;
+				const stream = new MediaStream(); 
+				stream.addTrack(mediaStream);
+				
 				// Emit the new event with the MediaStream
-				this.emit("streamReceived", mediaStream);
+				this.emit("streamReceived", stream);
 				
 				
 				
@@ -932,9 +935,17 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 		console.log('in consumeNewStream about to create recVTrasnport', message);
 		try {
 			let iceServers: [
-				{ urls: 'stun:stun.l.google.com:19302' },
-				// Add your own TURN servers here for maximum reliability
-			]
+				{ urls: "stun:stun.l.google.com:19302" },
+				{
+					urls: [
+						"turn:eu-0.turn.peerjs.com:3478",
+						"turn:us-0.turn.peerjs.com:3478",
+					],
+					username: "peerjs",
+					credential: "peerjsp",
+				},
+			]	// Add your own TURN servers here for maximum reliability
+		
 			let theirID = message.src;
 			let producerID = message.payload.producerId;
 			//id, iceParameters, iceCandidates, dtlsParameters, sctpParameters
@@ -943,7 +954,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			let iceCandidates = this._iceCandidates;
 			let dtlsParameters = this._dtlsParameters;
 			//me as the caller telling the client 
-			let recvTransport = this._device.createRecvTransport({id: this._transport.id ,iceParameters: iceParameters, iceCandidates: iceCandidates,  dtlsParameters: dtlsParameters});
+			let recvTransport = this._device.createRecvTransport({id: this._transport.id ,iceParameters: iceParameters, iceCandidates: iceCandidates, iceServers: iceServers, dtlsParameters: dtlsParameters});
 			this._recvTransport = recvTransport;
 			//console.log('recv transport succesfullycreated',recvTransport);
 			this.signalToConsume(theirID, recvTransport, producerID, iceParameters, iceCandidates,dtlsParameters );
