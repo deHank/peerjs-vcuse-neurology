@@ -501,26 +501,31 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					this.socket.send({type: 'CONNECTED', payload: dtlsParameters});
 					callback();
 				});
-				
+				try {
 				const consumer = this._recvTransport.consume({ id: id,
 					producerId: producerId,
 					kind: kind,
 					rtpParameters: rtpParameters,
 					
 					});
-				
+					const mediaStream = (await consumer).track;
+					const stream = new MediaStream(); 
+					stream.addTrack(mediaStream);
+					
+					// Emit the new event with the MediaStream
+					this.emit("streamReceived", stream);
+					
+					
+					
+					
+					console.log('Client-side consumer created:', (await consumer).id);
 
-				const mediaStream = (await consumer).track;
-				const stream = new MediaStream(); 
-				stream.addTrack(mediaStream);
-				
-				// Emit the new event with the MediaStream
-				this.emit("streamReceived", stream);
+					(await consumer).resume();
+				} catch(error){
+					console.log('consume straem failed with error', error);
+				}
 				
 				
-				
-				
-				console.log('Client-side consumer created:', (await consumer).id);
 				break;
 			}
 			case ServerMessageType.Offer: {
