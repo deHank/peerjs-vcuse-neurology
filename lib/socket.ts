@@ -101,7 +101,7 @@ export class Socket extends EventEmitter {
 			this._sendQueuedMessages();
 			
 			logger.log("Socket open");
-
+			this.emit(SocketEventType.Open);
 			this._scheduleHeartbeat();
 		};
 	}

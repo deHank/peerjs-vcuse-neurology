@@ -26,7 +26,6 @@ import * as mediasoupClient from "mediasoup-client";
 
 import { Producer } from "mediasoup-client/lib/Producer";
 import { Transport } from "mediasoup-client/lib/Transport";
-import dynamic from "next/dynamic";
 import { RtpCapabilities } from "mediasoup-client/lib/RtpParameters";
 
 class PeerOptions implements PeerJSOption {
@@ -114,7 +113,7 @@ export interface PeerEvents {
 	 */
 	error: (error: PeerError<`${PeerErrorType}`>) => void;
 	/** Emitted when the client has successfuly made the transport */
-	SocketReady:() => void;
+	SocketReady: () => void;
 	streamReceived: (stream: MediaStream) => void;
 }
 /**
@@ -134,7 +133,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private readonly _options: PeerOptions;
 	private readonly _api: API;
 	private readonly _socket: Socket;
-	private _producer: Producer;
+	private _videoProducer: Producer;
 	private _device: mediasoupClient.Device = null;
 	private _recvTransport: mediasoupClient.types.Transport = null;
 
@@ -146,8 +145,8 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private _dtlsParameters: mediasoupClient.types.DtlsParameters | null = null;
 	private _theirProducerId: string | null = null;
 	private _updatedProducerId: string | null = null;
-	private _transport: Transport = null;
-	
+	private _sendTransport: Transport = null;
+
 	// States.
 	private _destroyed = false; // Connections have been killed
 	private _disconnected = false; // Connection to PeerServer killed but P2P connections still active
@@ -230,7 +229,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	 * The ID must start and end with an alphanumeric character (lower or upper case character or a digit). In the middle of the ID spaces, dashes (-) and underscores (_) are allowed. Use {@apilink PeerOptions.metadata } to send identifying information.
 	 * @param options for specifying details about PeerServer
 	 */
-	constructor(username:string, id: string, options?: PeerOptions);
+	constructor(username: string, id: string, options?: PeerOptions);
 
 	constructor(username?: string, id?: string | PeerOptions, options?: PeerOptions) {
 		super();
@@ -243,7 +242,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 		} else if (id) {
 			userId = id.toString();
 		}
- 
+
 		// Configurize options
 		options = {
 			debug: 0, // 1: Errors, 2: Warnings, 3: All logs
@@ -293,7 +292,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 
 		this._api = new API(options);
 		this._socket = this._createServerConnection();
-
+		
 		// Sanity checks
 		// Ensure WebRTC supported
 		if (!util.supports.audioVideo && !util.supports.data) {
@@ -318,6 +317,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				.then((id) => this._initialize(id))
 				.catch((error) => this._abort(PeerErrorType.ServerError, error));
 		}
+		startWebRTC();
 	}
 
 	private _createServerConnection(): Socket {
@@ -358,6 +358,10 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			);
 		});
 
+		socket.on(SocketEventType.Open, () => {
+			// startWebRTC();
+		});
+
 		return socket;
 	}
 
@@ -365,6 +369,8 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	private _initialize(id: string, username?: string): void {
 		this._id = id;
 		this.socket.start(id, this._options.token!, username);
+		
+
 	}
 
 	/** Handles messages from the server. */
@@ -403,7 +409,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				);
 				break;
 
-			case ServerMessageType.NewProducerId: 
+			case ServerMessageType.NewProducerId:
 				this._updatedProducerId = message.payload.producerId;
 				//gotta make the recv transport here (due to logic order)
 				const recvTransId = message.payload.transport.internal.transportId;
@@ -421,15 +427,15 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					console.log('device loaded successfully');
 
 					console.log('right before createandSendTransport');
-					const sendTransport = await this._device.createSendTransport({id: payload.rtcTransport.id, iceParameters: payload.rtcTransport.iceParameters, iceCandidates: payload.rtcTransport.iceCandidates, dtlsParameters: payload.rtcTransport.dtlsParameters });
-					this._transport = sendTransport;
+					const sendTransport = await this._device.createSendTransport({ id: payload.rtcTransport.id, iceParameters: payload.rtcTransport.iceParameters, iceCandidates: payload.rtcTransport.iceCandidates, dtlsParameters: payload.rtcTransport.dtlsParameters });
+					this._sendTransport = sendTransport;
 					const mediaDevices = await navigator.mediaDevices.getUserMedia({
 						video: true,
 						audio: true
 					});
 					this._iceParameters = payload.rtcTransport.iceParameters;
 					this._iceCandidates = payload.rtcTransport.iceCandidates;
-					
+
 					this._dtlsParameters = payload.rtcTransport.dtlsParameters;
 					// Step 1: Add the 'connect' listener FIRST
 
@@ -442,6 +448,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 								'Check server logs for reason.',
 								'this is the sendTransport'
 							);
+							// sendTransport.restartIce({iceParameters: this._iceParameters});
 						}
 					});
 
@@ -452,8 +459,8 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 						// 		errback(err);
 						// 		return;
 						// 	}
-						
-						
+
+
 						// const mediaTransport = await this._device.createSendTransport(payload.rtcTransport);
 						// const mediaDevices = await navigator.mediaDevices.getUserMedia({
 						// 	video: true,
@@ -461,21 +468,21 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 						// });
 						this._iceParameters = payload.rtcTransport.iceParameters;
 						this._iceCandidates = payload.rtcTransport.iceCandidates;
-						
-						
+
+
 						// Step 1: Add the 'connect' listener FIRST
-						
-						this._socket.send({type: 'CONNECTTRANSPORT', payload: dtlsParameters});
+
+						this._socket.send({ type: 'CONNECTTRANSPORT', payload: dtlsParameters });
 						setTimeout(() => {
 							// NOTE: In a real app, this delay would be replaced by waiting for a server response.
-							callback(); 
-							
-							
-							
+							callback();
+
+
+
 							console.warn("DEBUG: 3-second delay finished. Client proceed to produce.");
 						}, 5000); // 3000 milliseconds = 3 seconds
-						
-						
+
+
 						// });
 					});
 
@@ -484,29 +491,29 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 						console.log('Produce event triggered', rtpParameters, kind, appData);
 						// this.socket.emit('send-producer', { kind, rtpParameters, appData }, (producerId) => {
 						// 	callback({ id: producerId });
-						const payloadAlt = {rtpParameters: rtpParameters, appData: appData};
+						const payloadAlt = { rtpParameters: rtpParameters, appData: appData };
 						const msg = { type: ServerMessageType.MediaStreamReady, payload: payloadAlt, src: this._id, dst: '' };
-						
+
 						this.socket.send(msg);
-						console.log("mediaSoupTransport sent",appData );
-						callback({id: this._transport.id});
+						console.log("mediaSoupTransport sent", appData);
+						callback({ id: this._sendTransport.id });
 						// });
 					});
-				
 
-					
-					this._producer = await sendTransport.produce({ track: mediaDevices.getVideoTracks()[0] });
-					console.log("mediaSoupTransport status", this._producer);
-					this._producer.resume();
 
-					console.log('producedid', this._producer.id);
+
+					this._videoProducer = await sendTransport.produce({ track: mediaDevices.getVideoTracks()[0] });
+					console.log("mediaSoupTransport status", this._videoProducer);
+					this._videoProducer.resume();
+
+					console.log('producedid', this._videoProducer.id);
 					break;
 				} catch (error) {
 					console.error('failed to load device', error);
 					return;
 				}
-				
-				
+
+
 				break;
 
 			}
@@ -523,13 +530,13 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				} = message.payload;
 				this._recvTransport.on('connectionstatechange', (connectionState) => {
 					console.log(`recv Transport Connection State: ${connectionState}`);
-				
+
 					// The 'failed' state is the final, definitive end of the connection attempt.
 					if (connectionState === 'failed') {
 						console.error('--- TRANSPORT FAILED ---');
 						console.error('DTLS or ICE negotiation failed. Check server logs!');
 						// You would close the transport here:
-						this._recvTransport.close(); 
+						this._recvTransport.close();
 					}
 				});
 
@@ -537,43 +544,37 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 
 				this._recvTransport.on('connect', ({ dtlsParameters }, callback, errback) => {
 					console.log('connect was a success', dtlsParameters);
-					const payload = {role: dtlsParameters.role, fingerprints: dtlsParameters.fingerprints}
-					this.socket.send({type: 'CONNECTED', payload: payload});
-					setTimeout(() => {
-						// This function is executed only after the delay
-						callback(); 
-						
-						console.warn("DEBUG: 5-second delay finished. Client proceed to produce.");
-						
-						// NOTE: In a real app, this delay would be replaced by waiting for a server response.
-					}, 5000); // 5000 milliseconds = 5 seconds
+					const payload = { role: dtlsParameters.role, fingerprints: dtlsParameters.fingerprints }
+					this.socket.send({ type: 'CONNECTED', payload: payload });
+					callback();
 				});
 				try {
-				const consumer = this._recvTransport.consume({ id: id,
-					producerId: producerId,
-					kind: kind,
-					rtpParameters: rtpParameters,
-					
+					const consumer = this._recvTransport.consume({
+						id: id,
+						producerId: producerId,
+						kind: kind,
+						rtpParameters: rtpParameters,
+
 					});
-					
+
 					const mediaStream = (await consumer).track;
-					const stream = new MediaStream(); 
+					const stream = new MediaStream();
 					stream.addTrack(mediaStream);
-					
+
 					// Emit the new event with the MediaStream
 					this.emit("streamReceived", stream);
-					
-					
-					
-					
+
+
+
+
 					console.log('Client-side consumer created:', (await consumer).id);
-					
-					
-				} catch(error){
+
+
+				} catch (error) {
 					console.log('consume straem failed with error', error);
 				}
-				
-				
+
+
 				break;
 			}
 			case ServerMessageType.Offer: {
@@ -630,15 +631,15 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				break;
 			}
 			case ServerMessageType.SendProducer: {
-				
+
 				console.log('received producer');// The server sent the new producer's ID
 				this._theirProducerId = payload.producerId;
-				
+
 				// Now, let's start the consumption process
 				this.consumeNewStream(message);
 				break;
 			}
-			
+
 
 			// case ServerMessageType.Answer: {
 			// 	const srcPeer = message.src;
@@ -712,9 +713,9 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 		if (this.disconnected) {
 			logger.warn(
 				"You cannot connect to a new Peer because you called " +
-					".disconnect() on this Peer and ended your connection with the " +
-					"server. You can create a new Peer to reconnect, or call reconnect " +
-					"on this peer if you believe its ID to still be available.",
+				".disconnect() on this Peer and ended your connection with the " +
+				"server. You can create a new Peer to reconnect, or call reconnect " +
+				"on this peer if you believe its ID to still be available.",
 			);
 			this.emitError(
 				PeerErrorType.Disconnected,
@@ -747,8 +748,8 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 		if (this.disconnected) {
 			logger.warn(
 				"You cannot connect to a new Peer because you called " +
-					".disconnect() on this Peer and ended your connection with the " +
-					"server. You can create a new Peer to reconnect.",
+				".disconnect() on this Peer and ended your connection with the " +
+				"server. You can create a new Peer to reconnect.",
 			);
 			this.emitError(
 				PeerErrorType.Disconnected,
@@ -776,18 +777,19 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 			dst: peer,
 			payload: {
 				producerId: this._updatedProducerId,
-				rtpParameters: this._producer.rtpParameters, // Send the parameters
-				kind: this._producer.kind,
+				rtpParameters: this._videoProducer.rtpParameters, // Send the parameters
+				kind: this._videoProducer.kind,
 				_iceParameters: this._iceParameters,
 				iceCandidates: this._iceCandidates,
 				dtlsParameters: this._dtlsParameters,
 				expectResponse: true,
 			},
 			src: this.id,
-			type: ServerMessageType.SendProducer,};
+			type: ServerMessageType.SendProducer,
+		};
 		const jsonString = JSON.stringify(msg);
 
-			
+
 		console.log("about to send msg", msg);
 		this._socket.send(msg);
 		console.log('sent call msg');
@@ -895,28 +897,28 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 
 	public async checkLocalStream(): Promise<MediaStream> {
 		try {
-		  const stream = await navigator.mediaDevices.getUserMedia({
-			video: true,
-			audio: true
-		  });
-	  
-		  const videoElement = document.createElement('video');
-		  videoElement.srcObject = stream;
-		  videoElement.autoplay = true;
-		  videoElement.controls = true;
-		  videoElement.style.width = '320px';
-		  videoElement.style.height = '240px';
-		  videoElement.style.border = '2px solid blue';
-	  
-		  document.body.appendChild(videoElement);
-	  
-		  console.log('Camera stream check: SUCCESS! You should see your video.');
-		  return stream;
+			const stream = await navigator.mediaDevices.getUserMedia({
+				video: true,
+				audio: true
+			});
+
+			const videoElement = document.createElement('video');
+			videoElement.srcObject = stream;
+			videoElement.autoplay = true;
+			videoElement.controls = true;
+			videoElement.style.width = '320px';
+			videoElement.style.height = '240px';
+			videoElement.style.border = '2px solid blue';
+
+			document.body.appendChild(videoElement);
+
+			console.log('Camera stream check: SUCCESS! You should see your video.');
+			return stream;
 		} catch (err) {
-		  console.error('Camera stream check: FAILED!', err);
-		  throw err;
+			console.error('Camera stream check: FAILED!', err);
+			throw err;
 		}
-	  }
+	}
 
 	/** Disconnects every connection on this peer. */
 	private _cleanup(): void {
@@ -968,23 +970,24 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	consumeNewStream(message: ServerMessage) {
 		//from perspective of callee
 		//we need to send our producer to the caller 
-		if(message.payload.expectResponse === true){
+		if (message.payload.expectResponse === true) {
 			const msg = {
 				dst: message.src,
 				payload: {
 					producerId: this._updatedProducerId,
-					rtpParameters: this._producer.rtpParameters, // Send the parameters
-					kind: this._producer.kind,
+					rtpParameters: this._videoProducer.rtpParameters, // Send the parameters
+					kind: this._videoProducer.kind,
 					_iceParameters: this._iceParameters,
 					iceCandidates: this._iceCandidates,
 					dtlsParameters: this._dtlsParameters,
 					expectResponse: false,
-			},
-			src: this.id,
-			type: ServerMessageType.SendProducer,};
+				},
+				src: this.id,
+				type: ServerMessageType.SendProducer,
+			};
 			this.socket.send(msg);
 		}
-		
+
 		console.log('in consumeNewStream about to create recVTrasnport', message);
 		try {
 			let iceServers: [
@@ -998,25 +1001,25 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 					credential: "peerjsp",
 				},
 			]	// Add your own TURN servers here for maximum reliability
-		
+
 			let theirID = message.src;
 			let producerID = message.payload.producerId;
 			//id, iceParameters, iceCandidates, dtlsParameters, sctpParameters
-			console.log('producer id',producerID);
+			console.log('producer id', producerID);
 			let iceParameters = message.payload._iceParameters;
 			let iceCandidates = message.payload.iceCandidates;
 			let dtlsParameters = message.payload.dtlsParameters;
 			//me as the caller telling the client 
-			this._recvTransport = this._device.createRecvTransport({id: this._recvTransportId ,iceParameters: iceParameters, iceCandidates: iceCandidates, dtlsParameters: dtlsParameters});
+			this._recvTransport = this._device.createRecvTransport({ id: this._recvTransportId, iceParameters: iceParameters, iceCandidates: iceCandidates, dtlsParameters: dtlsParameters });
 			
 			//console.log('recv transport succesfullycreated',recvTransport);
-			this.signalToConsume(theirID, this._recvTransport, producerID, iceParameters, iceCandidates,dtlsParameters );
-		}catch (error) {
+			this.signalToConsume(theirID, this._recvTransport, producerID, iceParameters, iceCandidates, dtlsParameters);
+		} catch (error) {
 			logger.error('error creating recvTransport', error);
 		}
 	}
 	//we (the one getting called have their producer id)
-	signalToConsume(theirPeerId: any, transport: Transport, producerId: any, iceParameters: any, iceCandidates: any, dtlsParameters: any){
+	signalToConsume(theirPeerId: any, transport: Transport, producerId: any, iceParameters: any, iceCandidates: any, dtlsParameters: any) {
 		transport
 		const msg = {
 			dst: 'df',
@@ -1026,11 +1029,12 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 				theirPeerId: theirPeerId,
 			},
 			src: this.id,
-			type: ServerMessageType.SignalConsume};
+			type: ServerMessageType.SignalConsume
+		};
 		const jsonString = JSON.stringify(msg);
 		this._socket.send(msg);
 		console.log('sent signalToConsume to server');
-		
+
 	}
 
 
@@ -1070,7 +1074,7 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	 * the cloud server, email team@peerjs.com to get the functionality enabled for
 	 * your key.
 	 */
-	listAllPeers(cb = (_: any[]) => {}): void {
+	listAllPeers(cb = (_: any[]) => { }): void {
 		this._api
 			.listAllPeers()
 			.then((peers) => cb(peers))
@@ -1078,4 +1082,95 @@ export class Peer extends EventEmitterWithError<PeerErrorType, PeerEvents> {
 	}
 }
 
+
+async function startWebRTC() {
+	await startMediasoup();
+	await startWebrtcSend();
+}
+
+async function startMediasoup() {
+	// The Promise wraps the asynchronous socket.emit call
+    return new Promise((resolve, reject) => {
+        
+        // 1. Send the event named 'request'
+        this.socket.emit('request', 
+            
+            // 2. The Request Payload (The first argument of socket.on('request'))
+            { type: "START_MEDIASOUP" }, 
+            
+            // 3. The Callback (The second argument of socket.on('request'))
+            async (serverResponse) => {
+
+				const routerRtpCaps = serverResponse.data;
+
+				let device = new mediasoupClient.Device();
+				this._device = device;
+
+				await device.load(routerRtpCaps);
+                // This function runs when the server calls callback()
+                if (serverResponse.data && serverResponse.data.error) {
+                    reject(new Error(serverResponse.data.error));
+                } else {
+                    resolve(serverResponse.data);
+                }
+            }
+        );
+    });
+	throw new Error("Function not implemented.");
+}
+
+function startWebrtcSend() {
+	// The Promise wraps the asynchronous socket.emit call
+    return new Promise((resolve, reject) => {
+        
+        // 1. Send the event named 'request'
+        this.socket.emit('request', 
+            
+            // 2. The Request Payload (The first argument of socket.on('request'))
+            { type: "WEBRTC_RECV_START", src: this._id }, 
+            
+            // 3. The Callback (The second argument of socket.on('request'))
+            (serverResponse) => {
+
+				const webrtcTransportOptions = serverResponse.data;
+				let transport;
+				try {
+					// "connect" is emitted upon the first call to transport.produce()
+					transport.on("connect", ({ dtlsParameters }, callback, _errback) => {
+						const payload = {srcId: this._id, dtlsParameters: dtlsParameters};
+						// Signal local DTLS parameters to the server side transport
+						this._socket.emit("WEBRTC_RECV_CONNECT", payload);
+						callback();
+					});
+					
+					// "produce" is emitted upon each call to transport.produce()
+					transport.on("produce", (produceParameters, callback, _errback) => {
+						const payload = {srcId: this.id, produceParamters: produceParameters};
+						this._socket.emit("WEBRTC_RECV_PRODUCE", payload) 
+						console.log("[startWebrtcSend] WebRTC RECV producer created");
+						callback({  });
+						
+					});
+
+					transport = this._device.createSendTransport(webrtcTransportOptions);
+					this._sendTransport = transport;
+
+
+				} catch (err) {
+					console.log("[startWebrtcSend] ERROR:", err);
+					return;
+				}
+
+                // This function runs when the server calls callback()
+                if (serverResponse.data && serverResponse.data.error) {
+                    reject(new Error(serverResponse.data.error));
+                } else {
+                    resolve(serverResponse.data);
+                }
+            }
+        );
+    });
+
+	throw new Error("Function not implemented.");
+}
 
