@@ -78,6 +78,7 @@ export enum SerializationType {
 }
 
 export enum SocketEventType {
+	StartMediasoup = "STARTMEDIASOUP",
 	Message = "message",
 	Disconnected = "disconnected",
 	Error = "error",

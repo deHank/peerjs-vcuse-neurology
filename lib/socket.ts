@@ -48,14 +48,14 @@ export class Socket extends EventEmitter {
 
 			try {
 				data = JSON.parse(event.data);
-				logger.log("Server message received1:", data);
+				//logger.log("Server message received1:", data);
 				if(data.type == ServerMessageType.Open){
 					logger.log("Open msg received");
-					const msg = {
-						dst: '',
-						src: id,
-						type: 'GETRTPCAPABILITIES',};
-					const jsonString = JSON.stringify(msg);
+					// const msg = {
+					// 	dst: '',
+					// 	src: id,
+					// 	type: 'GETRTPCAPABILITIES',};
+					// const jsonString = JSON.stringify(msg);
 						// provider.socket.send({
 						// 	type: ServerMessageType.Candidate,
 						// 	payload: {
@@ -66,9 +66,9 @@ export class Socket extends EventEmitter {
 						// 	dst: peerId,
 						// });
 
-					this._socket.send(
-						jsonString);
-					logger.log("sent msg back", jsonString);
+					// this._socket.send(
+					// 	jsonString);
+					
 				}
 			} catch (e) {
 				logger.log("Invalid server message", event.data);
@@ -138,7 +138,7 @@ export class Socket extends EventEmitter {
 		this._messagesQueue = [];
 
 		for (const message of copiedQueue) {
-			this.send(message);
+			// this.send(message);
 		}
 	}
 
@@ -151,7 +151,7 @@ export class Socket extends EventEmitter {
 		// If we didn't get an ID yet, we can't yet send anything so we should queue
 		// up these messages.
 		if (!this._id) {
-			this._messagesQueue.push(data);
+			// this._messagesQueue.push(data);
 			return;
 		}
 
