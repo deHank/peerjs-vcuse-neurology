@@ -69,6 +69,7 @@ export class Socket extends EventEmitter {
 					// this._socket.send(
 					// 	jsonString);
 					
+					
 				}
 			} catch (e) {
 				logger.log("Invalid server message", event.data);
@@ -101,7 +102,7 @@ export class Socket extends EventEmitter {
 			this._sendQueuedMessages();
 			
 			logger.log("Socket open");
-			this.emit(SocketEventType.Open);
+			// this.emit(SocketEventType.Open);
 			this._scheduleHeartbeat();
 		};
 	}
